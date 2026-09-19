@@ -13,7 +13,7 @@ const MODES = [
 export default function Home({ socket, setErrorMsg, isConnected = true }) {
   const [playerName, setPlayerName] = useState('');
   // A shared link like /A2B3C pre-fills the room code and selects Join.
-  const urlCode = readRoomCodeFromUrl();
+  const [urlCode] = useState(() => readRoomCodeFromUrl());
   const [roomCode, setRoomCode] = useState(urlCode || '');
   const [mode, setMode] = useState('join');
 

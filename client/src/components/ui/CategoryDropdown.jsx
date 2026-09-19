@@ -191,15 +191,13 @@ export default function CategoryDropdown({
                     </span>
                     <div className="min-w-0 flex-1">
                       <span className="block truncate font-semibold text-bone">{cat}</span>
-                      {selected.includes(cat) ? (
-                        <span className="block text-[11px] text-brand-300">Selected</span>
-                      ) : slotsLeft > 0 ? (
-                        <span className="block text-[11px] text-mist">
-                          {slotsLeft} slot{slotsLeft === 1 ? '' : 's'} left
-                        </span>
-                      ) : (
-                        <span className="block text-[11px] text-rose-400">Limit reached</span>
-                      )}
+                      <span
+                        className={`block text-[11px] font-semibold ${
+                          selected.includes(cat) ? 'text-brand-300' : 'text-mist'
+                        }`}
+                      >
+                        {selected.includes(cat) ? 'Selected' : 'Not selected'}
+                      </span>
                     </div>
                   </button>
                 ))}
