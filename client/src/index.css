@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* MVFRWD official palette - mirrored in tailwind.config.js. */
+  --mvfrwd-primary: #ff6b00;
+  --mvfrwd-primary-hover: #ff8433;
+  --mvfrwd-primary-active: #e05e00;
+  --mvfrwd-night: #0a0a0a;
+  --mvfrwd-coal: #1a1a1a;
+  --mvfrwd-bone: #f5f5f0;
+  --mvfrwd-white: #ffffff;
+  --mvfrwd-mist: #a1a1a1;
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-night font-body text-bone antialiased;
+  }
+
+  ::selection {
+    @apply bg-brand-500/40 text-white;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--mvfrwd-primary);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* --- Consistent button system (primary / secondary / ghost / danger) --- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition bg-brand-500 text-white shadow-lg shadow-brand-500/25 hover:bg-brand-400 active:bg-brand-600;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition border border-white/10 bg-coal text-bone hover:border-brand-500/50 hover:bg-white/5;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition border border-transparent bg-transparent text-mist hover:bg-white/5 hover:text-bone;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition border border-rose-400/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/25;
+  }
+  .btn-lg {
+    @apply px-6 py-3.5 text-base font-black;
+  }
+
+  /* --- Layered surfaces --- */
+  .glass {
+    @apply border border-white/10 bg-coal/80 backdrop-blur-xl;
+  }
+  .glass-strong {
+    @apply border border-white/10 bg-coal backdrop-blur-xl;
+  }
+  .card-hover {
+    @apply transition hover:border-brand-500/40 hover:shadow-lg hover:shadow-brand-500/10;
+  }
+
+  .eyebrow {
+    @apply text-[11px] font-bold uppercase tracking-[0.24em] text-brand-400;
+  }
+  .muted {
+    @apply text-mist;
+  }
+}
+
+@layer utilities {
+  /* --- 3D flip plumbing for RoleRevealCard and future flip surfaces --- */
+  .perspective-1800 {
+    perspective: 1800px;
+  }
+  .preserve-3d {
+    transform-style: preserve-3d;
+  }
+  .backface-hidden {
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+  .flip-y {
+    transform: rotateY(180deg);
+  }
+
+  /* --- Atmospheric background layers (near-black + orange ember glow) --- */
+  .bg-aurora {
+    background-image:
+      radial-gradient(58% 55% at 12% 8%, rgba(255, 107, 0, 0.16), transparent 62%),
+      radial-gradient(52% 48% at 88% 4%, rgba(255, 107, 0, 0.1), transparent 60%),
+      radial-gradient(70% 60% at 50% 108%, rgba(255, 132, 51, 0.12), transparent 66%);
+  }
+  .bg-grid-faint {
+    background-image:
+      linear-gradient(to right, rgba(245, 245, 240, 0.05) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(245, 245, 240, 0.05) 1px, transparent 1px);
+    background-size: 46px 46px;
+  }
+
+  /* --- Duplicate glass aliases kept for backwards compatibility --- */
+  .glass-compat {
+    @apply border border-white/10 bg-ink-800/70 backdrop-blur-xl;
+  }
+  .glass-strong-compat {
+    @apply border border-white/10 bg-ink-800/90 backdrop-blur-xl;
+  }
+
+  /* --- Slim scrollbars for long player/clue lists --- */
+  .scrollbar-slim {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+  }
+  .scrollbar-slim::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-slim::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.35);
+    border-radius: 9999px;
+  }
+  .scrollbar-slim::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* Respect users who prefer less motion: keep functionality, drop the movement. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
