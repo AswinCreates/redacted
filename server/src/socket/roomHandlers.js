@@ -130,7 +130,7 @@ export function registerRoomHandlers(io, socket, gameEngine) {
       return socket.emit('error_event', { code: 'INVALID_SETTINGS', message: error });
     }
 
-    Object.assign(room.settings, sanitized);
+        Object.assign(room.settings, sanitized);
 
     // Keep the imposter count legal for the (possibly just-changed) capacity.
     // This matters when the host shrinks the room: the previous count may no
@@ -145,5 +145,67 @@ export function registerRoomHandlers(io, socket, gameEngine) {
     }
 
     gameEngine.broadcastState(room);
+  });
+
+  /**
+   * C2S: kick_player
+   * Host forcibly removes a player from the room during LOBBY.
+   * The removed player receives a dedicated event so the client can redirect.
+   */
+  socket.on('kick_player', ({ targetPlayerId }) => {
+    const room = roomManager.getRoomBySocket(socket.id);
+    if (!room) return;
+
+    const requester = room.getPlayerBySocketId(socket.id);
+    if (!requester || !requester.isHost) {
+      return socket.emit('error_event', {
+        code: 'UNAUTHORIZED',
+        message: 'Only the host can kick players.',
+      });
+    }
+
+    if (room.phase !== 'LOBBY') {
+      return socket.emit('error_event', {
+        code: 'INVALID_PHASE',
+        message: 'Players can only be kicked in the lobby.',
+      });
+    }
+
+    if (!targetPlayerId || targetPlayerId === requester.id) {
+      return socket.emit('error_event', {
+        code: 'INVALID_TARGET',
+        message: 'You cannot kick yourself.',
+      });
+    }
+
+    const targetEntry = Array.from(room.players.values()).find((p) => p.id === targetPlayerId);
+
+    if (!targetEntry) {
+      return socket.emit('error_event', {
+        code: 'INVALID_TARGET',
+        message: 'That player is no longer in the room.',
+      });
+    }
+
+    try {
+      const { room: updatedRoom } = roomManager.kickPlayer(room.roomCode, targetEntry.id);
+
+      // Notify the removed player so the client can redirect.
+      io.to(targetEntry.socketId).emit('player_kicked', {
+        roomCode: room.roomCode,
+        message: 'You were removed from the room by the host.',
+      });
+
+      // Hard-disconnect the kicked player's socket.
+      io.sockets.sockets.get(targetEntry.socketId)?.disconnect(true);
+
+      // Broadcast updated state to remaining players.
+      gameEngine.broadcastState(updatedRoom);
+    } catch (error) {
+      socket.emit('error_event', {
+        code: 'KICK_FAILED',
+        message: error.message,
+      });
+    }
   });
 }

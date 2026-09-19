@@ -41,16 +41,13 @@ export default function GameScreen({
   const eliminatedPlayer = players.find((p) => p.id === roundResult?.eliminatedPlayerId);
   const isHost = localPlayer?.id === gameState.hostId;
 
-  // Start every round with the card face-down again.
+  // The card always starts face-down: on every new round AND every stage
+  // change (e.g. reveal -> guessing), so the secret word/hint is never left
+  // sitting on screen. The player must tap the card to see it, and can tap
+  // again to hide it while giving clues or voting.
   useEffect(() => {
     setRoleRevealed(false);
-  }, [playerRole?.role, gameState.currentRound]);
-
-  // Once the reveal stage is over the player still needs their own word/hint,
-  // so open the card automatically (they can tap to hide it any time).
-  useEffect(() => {
-    if (phase === 'CLUE_PHASE' || phase === 'VOTING_PHASE') setRoleRevealed(true);
-  }, [phase]);
+  }, [playerRole?.role, gameState.currentRound, phase]);
 
   // Clear the highlighted vote target when the voting stage ends.
   useEffect(() => {
@@ -118,7 +115,7 @@ export default function GameScreen({
             rolePayload={playerRole}
             selfId={localPlayer?.id}
             revealed={roleRevealed}
-            onToggle={() => setRoleReveal((value) => !value)}
+            onToggle={() => setRoleRevealed((value) => !value)}
             variant="hero"
           />
           <p className="text-center text-sm font-semibold text-bone">

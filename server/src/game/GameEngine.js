@@ -50,7 +50,12 @@ export class GameEngine {
     }
 
     // Assign Secret Word & Category Hint
-    const selectedItem = wordBank.getRandomWord(room.settings.category);
+    // Pick a random category from the host's 1-3 selections, then pick a word.
+    const pool = room.settings.categories && room.settings.categories.length > 0
+      ? room.settings.categories
+      : ['General'];
+    const chosenCategory = pool[Math.floor(Math.random() * pool.length)];
+    const selectedItem = wordBank.getRandomWord(chosenCategory);
     room.secretWord = selectedItem.word;
     room.categoryHint = selectedItem.hint;
 

@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Users, Play, LogOut, Crown, VenetianMask, Sparkles, Clock, Vote, LoaderCircle, Lock } from 'lucide-react';
+import { Users, Play, LogOut, Crown, VenetianMask, Sparkles, Clock, Vote, LoaderCircle, Lock, UserX } from 'lucide-react';
 import { fetchCategories } from '../utils/api';
 import { GAME_NAME } from '../config/branding';
 import RoomCodeBadge from '../components/ui/RoomCodeBadge';
 import PlayerAvatar from '../components/ui/PlayerAvatar';
 import Stepper from '../components/ui/Stepper';
 import SegmentedControl from '../components/ui/SegmentedControl';
+import CategoryDropdown from '../components/ui/CategoryDropdown';
 import SettingRow from '../components/ui/SettingRow';
 
 const TIMER_OPTIONS = [15, 30, 45, 60].map((seconds) => ({ value: seconds, label: `${seconds}s` }));
@@ -33,7 +34,7 @@ export default function Lobby({ socket, gameState, localPlayer, onLeave }) {
   // Every limit comes from the server; the client hardcodes none of them.
   const limits = gameState?.limits ?? { minCapacity: 3, maxCapacity: 20, imposterOptions: [1] };
   const imposterOptions = limits.imposterOptions ?? [1];
-  const themeOptions = themes.length > 0 ? themes : [settings.category].filter(Boolean);
+  const themeOptions = themes.length > 0 ? themes : (settings?.categories ?? []);
 
   const capacity = settings.maxPlayers ?? limits.minCapacity;
   const capacityMin = Math.max(limits.minCapacity, connectedPlayers.length);
@@ -116,14 +117,18 @@ export default function Lobby({ socket, gameState, localPlayer, onLeave }) {
             />
           </SettingRow>
 
-          <SettingRow icon={Sparkles} label="Theme" hint="Word bank used for this match">
-            <SegmentedControl
+          <SettingRow
+            icon={Sparkles}
+            label="Themes"
+            hint={isHost ? 'Choose 1-3 word bank themes for this match' : `Themes set by ${hostName}`}
+          >
+            <CategoryDropdown
               options={themeOptions}
-              value={settings.category}
+              value={settings.categories}
               disabled={!isHost}
-              size="sm"
-              onChange={(value) => updateSetting({ category: value })}
-              ariaLabel="Word theme"
+              max={3}
+              onChange={(categories) => updateSetting({ categories })}
+              ariaLabel="Word themes"
             />
           </SettingRow>
 
@@ -167,7 +172,7 @@ export default function Lobby({ socket, gameState, localPlayer, onLeave }) {
                 <li
                   key={player.id}
                   style={{ animationDelay: `${Math.min(index, 10) * 55}ms` }}
-                  className={`flex animate-slide-in-left items-center gap-3 rounded-2xl border p-3 transition ${
+                  className={`group flex animate-slide-in-left items-center gap-3 rounded-2xl border p-3 transition ${
                     player.isDisconnected
                       ? 'border-white/5 bg-white/[0.02] opacity-50'
                       : isSelf
@@ -191,6 +196,23 @@ export default function Lobby({ socket, gameState, localPlayer, onLeave }) {
                     <span className="flex shrink-0 items-center gap-1 rounded-full border border-amber-400/30 bg-amber-400/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300">
                       <Crown className="h-3 w-3" /> Host
                     </span>
+                  ) : null}
+
+                  {/* Host-only kick button (never for self, never for disconnected players) */}
+                  {isHost && !isSelf && !player.isDisconnected ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`Kick ${player.playerName} from the room?`)) {
+                          socket.emit('kick_player', { targetPlayerId: player.id });
+                        }
+                      }}
+                      className="flex shrink-0 items-center justify-center rounded-xl border border-rose-400/30 bg-rose-500/15 p-1.5 text-rose-300 opacity-70 transition hover:bg-rose-500/30 hover:text-white focus-visible:opacity-100 active:scale-90 group-hover:opacity-100"
+                      aria-label={`Kick ${player.playerName}`}
+                      title="Kick player"
+                    >
+                      <UserX className="h-4 w-4" />
+                    </button>
                   ) : null}
                 </li>
               );

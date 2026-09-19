@@ -141,10 +141,10 @@ async function main() {
 
   console.log('\n=== 4. HOST UPDATES SETTINGS ===');
   host.socket.emit('update_settings', {
-    settings: { category: 'Food', imposterCount: 1, maxPlayers: 8, clueTimer: 15, votingTimer: 15 },
+    settings: { categories: ['Food'], imposterCount: 1, maxPlayers: 8, clueTimer: 15, votingTimer: 15 },
   });
   const settingsSynced = await waitFor('settings broadcast to everyone', () =>
-    clients.every((c) => c.publicState.settings.category === 'Food' && c.publicState.settings.clueTimer === 15)
+    clients.every((c) => c.publicState.settings.categories.includes('Food') && c.publicState.settings.clueTimer === 15)
   );
   check('all clients received the new settings', settingsSynced);
   check(
@@ -483,6 +483,85 @@ async function main() {
   );
 
   for (const c of capClients) c.socket.disconnect();
+  await sleep(400);
+
+  console.log('\n=== 15. HOST KICKS A PLAYER ===');
+  const kHost = makeClient('KickHost');
+  const kVictim = makeClient('KickVictim');
+  const kThird = makeClient('KickThird');
+  const kickClients = [kHost, kVictim, kThird];
+
+  let victimKickedNotified = false;
+  kVictim.socket.on('player_kicked', (p) => {
+    victimKickedNotified = !!p?.message;
+  });
+
+  await waitFor('kick clients connected', () => kickClients.every((c) => c.socket.connected));
+  kHost.socket.emit('create_room', { playerName: 'KickHost' });
+  await waitFor('kick room created', () => kHost.playerId !== null);
+  const kickCode = kHost.publicState.roomCode;
+
+  kVictim.socket.emit('join_room', { roomCode: kickCode, playerName: 'KickVictim' });
+  await waitFor('victim joined', () => kVictim.playerId !== null);
+  check('victim joined the room before being kicked', kVictim.playerId !== null);
+
+  kThird.socket.emit('join_room', { roomCode: kickCode, playerName: 'KickThird' });
+  await waitFor('third player joined', () => kThird.playerId !== null);
+  check('kick scenario lobby is full (3 players)', kHost.publicState?.players?.length === 3);
+
+  // A non-host must not be able to kick anyone.
+  kThird.socket.emit('kick_player', { targetPlayerId: kVictim.playerId });
+  await sleep(500);
+  check('non-host cannot kick players', kThird.errors.some((e) => e.includes('UNAUTHORIZED')));
+  check(
+    'victim is still in the lobby after a non-host kick attempt',
+    kHost.publicState?.players?.some((p) => p.playerName === 'KickVictim')
+  );
+
+  // Host kicks the victim -> removed from the lobby + notified + disconnected.
+  const victimToken = kVictim.sessionToken;
+  kHost.socket.emit('kick_player', { targetPlayerId: kVictim.playerId });
+  const victimGone = await waitFor(
+    'victim removed from the lobby',
+    () => kHost.publicState?.players?.length === 2 && !kHost.publicState.players.some((p) => p.playerName === 'KickVictim')
+  );
+  check('host kick removes the victim from every lobby', victimGone);
+  check('victim was notified via player_kicked', victimKickedNotified);
+  const victimDisconnected = await waitFor('victim socket force-closed', () => !kVictim.socket.connected, 8000);
+  check('kicked player socket is disconnected by the server', victimDisconnected);
+
+  // The stale session token must never reclaim the freed seat.
+  const kRejoin = makeClient('RejoinAttempt');
+  await waitFor('rejoin client connected', () => kRejoin.socket.connected);
+  kRejoin.socket.emit('join_room', { roomCode: kickCode, playerName: 'KickVictim', sessionToken: victimToken });
+  const rejoinBlocked = await waitFor(
+    'stale session rejoin rejected',
+    () => kRejoin.errors.some((e) => e.includes('JOIN_FAILED')),
+    5000
+  );
+  check('kicked player cannot reclaim the seat with a stale session', rejoinBlocked);
+  check('rejected rejoin never entered the room', kRejoin.playerId === null);
+
+  // A brand-new player may take the freed slot.
+  kRejoin.socket.emit('join_room', { roomCode: kickCode, playerName: 'NewChallenger' });
+  const slotRefilled = await waitFor(
+    'new player takes the freed slot',
+    () => kRejoin.playerId !== null && kHost.publicState?.players?.some((p) => p.playerName === 'NewChallenger'),
+    8000
+  );
+  check('freed slot can be filled by a new player', slotRefilled);
+
+  // Host cannot kick themselves, and the kick of an unknown player is refused.
+  const hostErrorsBefore = kHost.errors.length;
+  kHost.socket.emit('kick_player', { targetPlayerId: kHost.playerId });
+  await sleep(400);
+  check('host cannot kick themselves', kHost.errors.length > hostErrorsBefore);
+  kHost.socket.emit('kick_player', { targetPlayerId: 'not-a-real-id' });
+  await sleep(400);
+  check('kicking a player who is not in the room is refused', kHost.errors.length > hostErrorsBefore + 1);
+
+  for (const c of kickClients) c.socket.disconnect();
+  kRejoin.socket.disconnect();
   await sleep(400);
 
   console.log(`\n================ ${passed} passed, ${failed} failed ================\n`);

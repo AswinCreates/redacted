@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { UserRound, LogIn, Plus, Users, ShieldQuestion } from 'lucide-react';
 import { saveSession } from '../utils/storage';
+import { readRoomCodeFromUrl } from '../hooks/useGameState';
 import { GAME_NAME, GAME_TAGLINE, GAME_SUBTITLE } from '../config/branding';
 import SegmentedControl from '../components/ui/SegmentedControl';
 
@@ -11,7 +12,9 @@ const MODES = [
 
 export default function Home({ socket, setErrorMsg, isConnected = true }) {
   const [playerName, setPlayerName] = useState('');
-  const [roomCode, setRoomCode] = useState('');
+  // A shared link like /A2B3C pre-fills the room code and selects Join.
+  const urlCode = readRoomCodeFromUrl();
+  const [roomCode, setRoomCode] = useState(urlCode || '');
   const [mode, setMode] = useState('join');
 
   const readName = () => {

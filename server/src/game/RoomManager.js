@@ -58,6 +58,12 @@ export class RoomManager {
       throw new Error('Room not found');
     }
 
+    // 0. Kicked players are permanently barred from this room, even if their
+    //    client still replays the old session token from localStorage.
+    if (sessionToken && room.kickedSessionTokens.has(sessionToken)) {
+      throw new Error('You were removed from the room by the host.');
+    }
+
     // 1. Session Reconnection Check
     if (sessionToken) {
       const existingPlayer = room.getPlayerBySessionToken(sessionToken);
@@ -96,7 +102,7 @@ export class RoomManager {
   /**
    * Handles player disconnection.
    */
-  handleDisconnect(socketId) {
+    handleDisconnect(socketId) {
     for (const room of this.rooms.values()) {
       const player = room.getPlayerBySocketId(socketId);
       if (player) {
@@ -124,6 +130,28 @@ export class RoomManager {
       }
     }
     return null;
+  }
+
+  /**
+   * Host forcibly removes a player from the room.
+   * The player entry is deleted outright so they cannot linger as a
+   * "Reconnecting…" ghost and their slot is freed immediately.
+   * Only ever called for the LOBBY phase, where no roles/scores exist yet.
+   */
+  kickPlayer(roomCode, targetPlayerId) {
+    const room = this.getRoom(roomCode);
+    if (!room) {
+      throw new Error('Room not found');
+    }
+    const target = Array.from(room.players.values()).find((p) => p.id === targetPlayerId);
+    if (!target) {
+      throw new Error('Player not found');
+    }
+    // Remove them from the room entirely and blacklist their session token so
+    // a stale localStorage session can never quietly reclaim the seat.
+    room.kickedSessionTokens.add(target.sessionToken);
+    room.players.delete(target.id);
+    return { room, player: target };
   }
 }
 

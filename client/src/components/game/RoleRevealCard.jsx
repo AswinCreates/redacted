@@ -139,7 +139,7 @@ export default function RoleRevealCard({
   );
 
   return (
-    <div className={`perspective-1800 w-full ${className}`}>
+    <div className={`perspective-1800 w-full ${className} ${revealed ? '' : 'animate-float'}`}>
       <button
         type="button"
         onClick={onToggle}
@@ -147,7 +147,7 @@ export default function RoleRevealCard({
         aria-label={revealed ? 'Hide your role' : 'Reveal your role'}
         className={`group relative block w-full preserve-3d transition-transform duration-700 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/70 ${
           isCompact ? 'h-32' : 'h-80 sm:h-96'
-        } ${revealed ? 'flip-y' : 'animate-float'}`}
+        } ${revealed ? 'flip-y' : ''}`}
       >
         {/* Hidden face */}
         <span className="absolute inset-0 overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-coal via-night to-night shadow-2xl shadow-black/60 backface-hidden">

@@ -64,11 +64,31 @@ export function validateSettings(settings, room) {
     sanitized.imposterCount = requested;
   }
 
-  if (settings.category !== undefined) {
+  if (settings.categories !== undefined) {
+    // Host may choose 1 to 3 categories for the game.
+    if (!Array.isArray(settings.categories) || settings.categories.length === 0) {
+      return { error: 'Select at least one category.' };
+    }
+    if (settings.categories.length > 3) {
+      return { error: 'Choose up to 3 categories.' };
+    }
+    const normalized = settings.categories
+      .map((c) => (typeof c === 'string' ? c.trim() : null))
+      .filter(Boolean);
+    const unique = [...new Set(normalized)];
+    if (unique.length !== normalized.length) {
+      return { error: 'Duplicate categories are not allowed.' };
+    }
+    if (!unique.every((c) => VALID_CATEGORIES.includes(c))) {
+      return { error: 'Invalid category selected.' };
+    }
+    sanitized.categories = unique;
+  } else if (settings.category !== undefined) {
+    // Legacy single-category shape — still accept it for backward compat.
     if (!VALID_CATEGORIES.includes(settings.category)) {
       return { error: 'Invalid theme selected.' };
     }
-    sanitized.category = settings.category;
+    sanitized.categories = [settings.category];
   }
 
   if (settings.clueTimer !== undefined) {

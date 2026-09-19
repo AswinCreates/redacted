@@ -44,7 +44,7 @@ export class Room {
       // Player capacity chosen by the host - bounded by GAME_LIMITS, never fixed.
       maxPlayers: GAME_LIMITS.DEFAULT_MAX_PLAYERS,
       imposterCount: GAME_LIMITS.MIN_IMPOSTERS,
-      category: 'General',
+      categories: ['General'], // 1-3 categories chosen by the host
       clueTimer: 30,
       votingTimer: 30,
     };
@@ -60,6 +60,9 @@ export class Room {
     this.clueTimeline = []; // Array of { playerId, playerName, clueText, timestamp }
     this.roundWinner = null; // 'INNOCENTS' | 'IMPOSTERS'
     this.lastEliminatedPlayerId = null;
+    // Session tokens of kicked players - they may never rejoin this room,
+    // even if their client still holds a stale session in localStorage.
+    this.kickedSessionTokens = new Set();
 
     // Add Host Player
     this.players.set(hostPlayer.id, hostPlayer);
@@ -89,7 +92,11 @@ export class Room {
       roomCode: this.roomCode,
       hostId: this.hostId,
       phase: this.phase,
-      settings: { ...this.settings },
+      settings: {
+        ...this.settings,
+        // Expose the selected categories for the lobby display.
+        categories: this.settings.categories,
+      },
       // Server-owned rules, broadcast so the client never hardcodes capacity
       // limits or which imposter counts are legal.
       limits: {
