@@ -1,13 +1,15 @@
 import { roomManager } from '../game/RoomManager.js';
 import { GAME_LIMITS, getMaxImposters } from '../config/gameConfig.js';
-import { validatePlayerName, validateSettings } from '../utils/validation.js';
+import { validatePlayerName, validateSettings, normalizeGameMode } from '../utils/validation.js';
 
 export function registerRoomHandlers(io, socket, gameEngine) {
   /**
    * C2S: create_room
    * Creates a new game room and sets the sender as Host.
+   * The host picks Online/Offline up front; omitting it keeps the old Online
+   * default so an out-of-date client still works.
    */
-  socket.on('create_room', ({ playerName }) => {
+  socket.on('create_room', ({ playerName, gameMode }) => {
     const validName = validatePlayerName(playerName);
     if (!validName) {
       return socket.emit('error_event', {
@@ -16,8 +18,16 @@ export function registerRoomHandlers(io, socket, gameEngine) {
       });
     }
 
+    const mode = normalizeGameMode(gameMode);
+    if (mode === null) {
+      return socket.emit('error_event', {
+        code: 'INVALID_MODE',
+        message: 'Unknown game mode.',
+      });
+    }
+
     try {
-      const { room, player } = roomManager.createRoom(validName, socket.id);
+      const { room, player } = roomManager.createRoom(validName, socket.id, mode);
       socket.join(room.roomCode);
 
       socket.emit('room_joined', {

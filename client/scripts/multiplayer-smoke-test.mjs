@@ -116,6 +116,16 @@ async function main() {
   check('host received room_joined with a room code', !!roomCode, roomCode);
   check('host is flagged as host', host.isHost === true);
   check('host sees LOBBY phase', host.publicState?.phase === 'LOBBY');
+  // Mode defaults + presets the lobby UI needs, delivered by the server.
+  check(
+    'a room created without a mode defaults to ONLINE',
+    host.publicState?.settings?.gameMode === 'ONLINE',
+    host.publicState?.settings?.gameMode
+  );
+  check(
+    'the offline discussion timer is part of the broadcast settings',
+    typeof host.publicState?.settings?.discussionTimer === 'number'
+  );
 
   console.log('\n=== 2. JOIN ROOM ===');
   await waitFor('p2 connected', () => p2.socket.connected);
@@ -341,6 +351,10 @@ async function main() {
   p2.socket.emit('update_settings', { settings: { maxPlayers: 5 } });
   await sleep(400);
   check('non-host cannot change settings', p2.errors.some((e) => e.includes('UNAUTHORIZED')));
+  check(
+    'an ONLINE room never enters the offline discussion phase',
+    clients.every((c) => c.publicStates.every((s) => s.phase !== 'DISCUSSION_PHASE'))
+  );
   check('no unexpected errors on host', host.errors.length === 0, host.errors.join(' | '));
 
   console.log('\n=== CLIENT EVENT COVERAGE (events the React app listens for) ===');
@@ -636,6 +650,290 @@ async function main() {
 
   for (const c of kickClients) c.socket.disconnect();
   kRejoin.socket.disconnect();
+  await sleep(400);
+
+  console.log('\n=== 16. OFFLINE MODE (verbal clues, shared server timer, same voting) ===');
+  const offHost = makeClient('OffHost');
+  const offP2 = makeClient('OffP2');
+  const offP3 = makeClient('OffP3');
+  let offClients = [offHost, offP2, offP3];
+
+  await waitFor('offline clients connected', () => offClients.every((c) => c.socket.connected));
+  offHost.socket.emit('create_room', { playerName: 'OffHost', gameMode: 'OFFLINE' });
+  const offRoomReady = await waitFor('offline room created', () => offHost.playerId !== null);
+  check('a host can create an OFFLINE room', offRoomReady);
+  check('the chosen mode is part of the room state', offHost.publicState?.settings?.gameMode === 'OFFLINE');
+  const offCode = offHost.publicState.roomCode;
+
+  offP2.socket.emit('join_room', { roomCode: offCode, playerName: 'OffP2' });
+  offP3.socket.emit('join_room', { roomCode: offCode, playerName: 'OffP3' });
+  const offJoined = await waitFor('offline lobby filled', () => offHost.publicState?.players?.length === 3);
+  check(
+    'joining players receive the mode too (lobby sync)',
+    offJoined && offClients.every((c) => c.publicState?.settings?.gameMode === 'OFFLINE')
+  );
+
+  // Discussion time is an Offline-only host setting, validated by the server.
+  check(
+    'discussion time defaults to 2 minutes',
+    offHost.publicState.settings.discussionTimer === 120,
+    `${offHost.publicState.settings.discussionTimer}`
+  );
+  check(
+    'discussion time presets come from the server (30s..5min)',
+    JSON.stringify(offHost.publicState.limits?.discussionTimerOptions) === '[30,60,120,180,300]',
+    JSON.stringify(offHost.publicState.limits?.discussionTimerOptions)
+  );
+  offHost.socket.emit('update_settings', { settings: { discussionTimer: 45 } });
+  await sleep(400);
+  check(
+    'a discussion time that is not a preset is rejected',
+    offHost.errors.some((e) => e.includes('INVALID_SETTINGS'))
+  );
+  offHost.socket.emit('update_settings', { settings: { discussionTimer: 60 } });
+  const discSet = await waitFor('discussion time set', () => offHost.publicState.settings.discussionTimer === 60);
+  check('the host can set the discussion time (1 minute)', discSet);
+
+  // Non-hosts cannot retime the discussion.
+  const nonHostErrorsBefore = offP2.errors.length;
+  offP2.socket.emit('update_settings', { settings: { discussionTimer: 30 } });
+  await sleep(400);
+  check(
+    'a non-host cannot change the discussion time',
+    offP2.errors.length > nonHostErrorsBefore && offHost.publicState.settings.discussionTimer === 60
+  );
+
+  console.log('\n=== 16b. OFFLINE: DISCUSSION TIMER EXPIRES -> VOTE INTRO -> VOTING ===');
+
+  offHost.socket.emit('start_game');
+  const offRoles = await waitFor('offline roles dealt', () => offClients.every((c) => c.role !== null), 30000);
+  check('an offline match deals the same private roles', offRoles);
+  const offImposter = offClients.find((c) => c.role?.role === 'IMPOSTER');
+  const offInnocents = offClients.filter((c) => c.role?.role === 'INNOCENT');
+  check(
+    'offline innocents receive the secret word',
+    offInnocents.length === 2 && offInnocents.every((c) => typeof c.role.word === 'string' && c.role.word.length > 0)
+  );
+  check(
+    'the offline imposter gets only the hint (never the word)',
+    offImposter?.role?.word === undefined && typeof offImposter?.role?.hint === 'string'
+  );
+  check(
+    'the secret word is never broadcast in offline mode',
+    offClients.every((c) => c.publicStates.every((s) => s.secretWord === undefined))
+  );
+
+  const discReached = await waitFor(
+    'phase reaches DISCUSSION_PHASE',
+    () => offHost.publicState?.phase === 'DISCUSSION_PHASE',
+    30000
+  );
+  check('offline play opens a DISCUSSION_PHASE instead of clue turns', discReached);
+  check(
+    'the discussion countdown is server-broadcast (absolute phaseExpiresAt)',
+    offHost.publicState.phaseExpiresAt > Date.now() &&
+      offHost.publicState.phaseExpiresAt <= Date.now() + 61000
+  );
+  check('there is no clue-turn queue in offline mode', offHost.publicState.activeTurnPlayerId === null);
+  check('no clues exist in offline mode', (offHost.publicState.clueTimeline ?? []).length === 0);
+  check(
+    'every client sees the same discussion deadline',
+    new Set(offClients.map((c) => c.publicState.phaseExpiresAt)).size === 1
+  );
+
+  // Nothing is ever typed in this mode: the server must refuse clue submissions.
+  offP2.socket.emit('submit_clue', { clueText: 'offline-should-not-exist' });
+  await sleep(600);
+  check(
+    'clue submission is refused during the discussion phase',
+    offClients.every((c) => (c.publicState.clueTimeline ?? []).length === 0)
+  );
+
+  // Voting must not be possible before the discussion timer ends.
+  offP2.socket.emit('submit_vote', { targetPlayerId: offHost.playerId });
+  await sleep(600);
+  check(
+    'voting before the discussion ends is refused',
+    offHost.publicState.players.find((p) => p.id === offP2.playerId)?.hasVoted !== true
+  );
+
+  // Reconnecting mid-discussion must hand back the live phase + remaining time.
+  const offToken = offP3.sessionToken;
+  offP3.socket.disconnect();
+  const offRejoin = makeClient('OffP3-rejoin');
+  await waitFor('offline rejoiner connected', () => offRejoin.socket.connected, 5000);
+  offRejoin.socket.emit('join_room', { roomCode: offCode, playerName: 'OffP3', sessionToken: offToken });
+  const offRejoinState = await waitFor('offline rejoiner state', () => offRejoin.publicState !== null, 5000);
+  check(
+    'a client reconnecting mid-discussion is told the live phase',
+    offRejoinState && offRejoin.publicState.phase === 'DISCUSSION_PHASE',
+    `saw ${offRejoin.publicState?.phase}`
+  );
+  check(
+    'the rejoining client is told how much discussion time is left',
+    offRejoin.publicState?.phaseExpiresAt > Date.now()
+  );
+  check(
+    'reconnecting never restarts or duplicates the discussion timer',
+    (offRejoin.publicState?.phaseExpiresAt ?? 0) <= (offHost.publicState?.phaseExpiresAt ?? 0) + 1500
+  );
+  offClients = [offHost, offP2, offRejoin];
+
+  // The rejoining client may be the imposter or an innocent, so the vote drivers
+  // must be re-resolved from the live client list: the old wrapper holds a dead
+  // socket and would silently drop its vote (leaving the round to time out).
+  const offImposterClient = offClients.find((c) => c.role?.role === 'IMPOSTER') ?? offImposter;
+  const offInnocentClients = offClients.filter((c) => c.role?.role === 'INNOCENT');
+  check('the rejoining client is re-issued its private role', offClients.every((c) => Boolean(c.role?.role)));
+  check('the offline room still has one imposter and two innocents', Boolean(offImposterClient) && offInnocentClients.length === 2);
+
+  // The discussion timer expiring must reuse the exact same 5-second vote intro.
+  const offIntro = await waitFor(
+    'offline vote intro after the discussion',
+    () => offHost.publicState?.phase === 'CLUE_REVEAL',
+    75000
+  );
+  check('the discussion timer hands over to the shared vote intro', offIntro);
+  check(
+    'the vote intro countdown is broadcast (phaseExpiresAt in the future)',
+    offHost.publicState?.phaseExpiresAt > Date.now()
+  );
+  check(
+    'the offline round never accumulates clues',
+    offClients.every((c) => (c.publicState.clueTimeline ?? []).length === 0)
+  );
+
+  const offVoting = await waitFor('offline voting phase', () => offHost.publicState?.phase === 'VOTING_PHASE', 20000);
+  check('voting starts automatically when the discussion ends', offVoting);
+  check('the voting timer is broadcast in offline mode', offHost.publicState.phaseExpiresAt > 0);
+
+  // Identical voting system: one vote per active player, no self-votes, unique
+  // highest eliminates. A finished ballot resolves the round immediately, so the
+  // imposter must vote for someone else rather than abstaining.
+  offImposterClient.socket.emit('submit_vote', { targetPlayerId: offImposterClient.playerId });
+  await sleep(500);
+  check(
+    'a self-vote is refused in offline mode',
+    offHost.publicState.players.find((p) => p.id === offImposter.playerId)?.hasVoted === false
+  );
+
+  for (const c of offInnocentClients) c.socket.emit('submit_vote', { targetPlayerId: offImposter.playerId });
+  offImposterClient.socket.emit('submit_vote', { targetPlayerId: offInnocentClients[0].playerId });
+  const offResult = await waitFor(
+    'offline results revealed',
+    () => offClients.every((c) => c.resultsRevealed !== null),
+    20000
+  );
+  check('offline results use the same reveal payload', offResult);
+  check('the majority vote eliminated the imposter', offHost.resultsRevealed?.eliminatedPlayerId === offImposter.playerId);
+  check('the eliminated offline player is revealed as an imposter', offHost.resultsRevealed?.revealedRole === 'IMPOSTER');
+  check('innocents win the offline round', offHost.resultsRevealed?.roundWinner === 'INNOCENTS');
+  check(
+    'offline scoring is unchanged (100 round win + 50 correct vote)',
+    (offHost.resultsRevealed?.scores || []).find((s) => s.id === offInnocents[0].playerId)?.score === 150
+  );
+  check(
+    'the eliminated offline player becomes a spectator',
+    offClients.every((c) => c.publicState.players.find((p) => p.id === offImposter.playerId)?.isEliminated === true)
+  );
+
+  const offOver = await waitFor('offline match over', () => offClients.every((c) => c.gameOver !== null), 30000);
+  check('the offline match reaches GAME_OVER with the same win logic', offOver && offHost.publicState?.phase === 'GAME_OVER');
+
+  // The mode is frozen while a match is running...
+  const offErrorsBefore = offHost.errors.length;
+  offHost.socket.emit('update_settings', { settings: { gameMode: 'ONLINE' } });
+  await sleep(500);
+  check(
+    'the mode cannot be changed once a match has started',
+    offHost.errors.length > offErrorsBefore && offHost.publicState.settings.gameMode === 'OFFLINE'
+  );
+
+  // ...and can be switched again in the lobby, where Online must come back intact.
+  offHost.socket.emit('restart_game');
+  const offLobby = await waitFor(
+    'offline room returns to the lobby',
+    () => offClients.every((c) => c.publicState.phase === 'LOBBY'),
+    10000
+  );
+  check('a rematch returns the offline room to a reset lobby', offLobby && offHost.publicState.settings.gameMode === 'OFFLINE');
+  check('the rematch clears the discussion deadline', offClients.every((c) => c.publicState.phaseExpiresAt === null));
+
+  offHost.socket.emit('update_settings', { settings: { gameMode: 'ONLINE' } });
+  const offSwitched = await waitFor('mode switched back to ONLINE', () => offHost.publicState.settings.gameMode === 'ONLINE');
+  check(
+    'the host can switch back to ONLINE from the lobby',
+    offSwitched && offClients.every((c) => c.publicState.settings.gameMode === 'ONLINE')
+  );
+
+  offHost.socket.emit('start_game');
+  const onlineAgain = await waitFor(
+    'ONLINE clue phase after the switch',
+    () => offHost.publicState?.phase === 'CLUE_PHASE' && offHost.publicState.activeTurnPlayerId !== null,
+    30000
+  );
+  check('switching to ONLINE restores the normal turn-based clue flow', onlineAgain);
+  check(
+    'no discussion phase ever runs while the room is ONLINE',
+    offHost.publicStates.every((s) => s.phase !== 'DISCUSSION_PHASE' || s.settings.gameMode === 'OFFLINE')
+  );
+
+  for (const c of offClients) c.socket.disconnect();
+  await sleep(400);
+
+  console.log('\n=== 16c. OFFLINE: HOST DISCONNECTS MID-DISCUSSION ===');
+  const hdHost = makeClient('HdHost');
+  const hdP2 = makeClient('HdP2');
+  const hdP3 = makeClient('HdP3');
+  const hdClients = [hdHost, hdP2, hdP3];
+
+  await waitFor('host-drop clients connected', () => hdClients.every((c) => c.socket.connected));
+  hdHost.socket.emit('create_room', { playerName: 'HdHost', gameMode: 'OFFLINE' });
+  await waitFor('host-drop room created', () => hdHost.playerId !== null);
+  const hdCode = hdHost.publicState.roomCode;
+  hdP2.socket.emit('join_room', { roomCode: hdCode, playerName: 'HdP2' });
+  hdP3.socket.emit('join_room', { roomCode: hdCode, playerName: 'HdP3' });
+  await waitFor('host-drop lobby filled', () => hdHost.publicState?.players?.length === 3);
+  hdHost.socket.emit('update_settings', { settings: { discussionTimer: 30 } });
+  await waitFor('host-drop discussion time set', () => hdHost.publicState.settings.discussionTimer === 30);
+  hdHost.socket.emit('start_game');
+  const hdDiscussion = await waitFor(
+    'host-drop discussion started',
+    () => hdHost.publicState?.phase === 'DISCUSSION_PHASE',
+    30000
+  );
+  check('the host-drop scenario reached the offline discussion phase', hdDiscussion);
+
+  const originalHostId = hdHost.playerId;
+  hdHost.socket.disconnect();
+
+  // Losing the host must never stall the round: the server keeps its own countdown
+  // and reassigns the host role to a remaining connected player.
+  const hdIntro = await waitFor('vote intro after the host dropped', () => hdP2.publicState?.phase === 'CLUE_REVEAL', 60000);
+  check('the discussion timer keeps running after the host disconnects', hdIntro);
+  check('the host role is reassigned away from the disconnected host', hdP2.publicState?.hostId !== originalHostId);
+  check(
+    'the new host is one of the remaining connected players',
+    [hdP2.playerId, hdP3.playerId].includes(hdP2.publicState?.hostId)
+  );
+
+  const hdVoting = await waitFor('voting without the host', () => hdP2.publicState?.phase === 'VOTING_PHASE', 20000);
+  check('voting still starts without the host', hdVoting);
+
+  // The two remaining players are the only active voters: a disconnected player
+  // must never block the round from resolving.
+  hdP2.socket.emit('submit_vote', { targetPlayerId: hdP3.playerId });
+  hdP3.socket.emit('submit_vote', { targetPlayerId: hdP2.playerId });
+  const hdResolved = await waitFor(
+    'votes resolved without the host',
+    () => hdP2.publicState?.phase === 'RESULT_PHASE',
+    20000
+  );
+  check('a disconnected host does not block the vote from resolving', hdResolved);
+  check('the tied vote eliminated nobody', hdP2.resultsRevealed?.eliminatedPlayerId === null);
+  check('the round resolved with no clues recorded', (hdP2.publicState?.clueTimeline ?? []).length === 0);
+
+  for (const c of [hdP2, hdP3]) c.socket.disconnect();
   await sleep(400);
 
   console.log(`\n================ ${passed} passed, ${failed} failed ================\n`);

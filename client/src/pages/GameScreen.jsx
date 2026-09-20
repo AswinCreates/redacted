@@ -9,13 +9,17 @@ import {
   Skull,
   Sparkles,
   Eye,
+  Globe,
+  UsersRound,
 } from 'lucide-react';
 import TimerHeader from '../components/common/TimerHeader';
 import RoleRevealCard from '../components/game/RoleRevealCard';
 import ClueTimeline from '../components/game/ClueTimeline';
 import Scoreboard from '../components/game/Scoreboard';
+import DiscussionPanel from '../components/game/DiscussionPanel';
 import PlayerAvatar from '../components/ui/PlayerAvatar';
 import { getPhaseHint, getPhaseLabel, getTimerLabel } from '../utils/phaseLabels';
+import { getGameModeLabel, isOfflineMode } from '../utils/gameModes';
 
 export default function GameScreen({
   socket,
@@ -40,6 +44,14 @@ export default function GameScreen({
   const eligibleVoters = players.filter((p) => !p.isEliminated).length;
   const eliminatedPlayer = players.find((p) => p.id === roundResult?.eliminatedPlayerId);
   const isHost = localPlayer?.id === gameState.hostId;
+
+  // Which mode this room is playing. Server-authoritative: it arrives with every
+  // room_state_update, so a reconnecting client always gets the right one.
+  //   ONLINE  -> typed clues in turn (CLUE_PHASE)
+  //   OFFLINE -> verbal clues in one room (DISCUSSION_PHASE, timer only)
+  const settings = gameState.settings ?? {};
+  const gameMode = settings.gameMode;
+  const offline = isOfflineMode(settings);
 
   // The card always starts face-down: on every new round AND every stage
   // change (e.g. reveal -> guessing), so the secret word/hint is never left
@@ -73,13 +85,17 @@ export default function GameScreen({
     <div className="mx-auto w-full max-w-3xl animate-fade-in-up space-y-4">
       <header className="glass flex items-start justify-between gap-3 rounded-2xl px-4 py-3">
         <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-brand-300">
+          <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.24em] text-brand-300">
             Round {gameState.currentRound}
+            <span className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 tracking-wider text-mist">
+              {offline ? <UsersRound className="h-3 w-3" /> : <Globe className="h-3 w-3" />}
+              {getGameModeLabel(settings)}
+            </span>
           </p>
           <h1 className="truncate font-display text-xl font-black leading-tight text-white sm:text-2xl">
-            {getPhaseLabel(phase)}
+            {getPhaseLabel(phase, gameMode)}
           </h1>
-          <p className="truncate text-xs text-mist">{getPhaseHint(phase)}</p>
+          <p className="truncate text-xs text-mist">{getPhaseHint(phase, gameMode)}</p>
         </div>
         <button
           type="button"
@@ -124,7 +140,10 @@ export default function GameScreen({
         </section>
       ) : null}
 
-      {phase === 'CLUE_PHASE' ? (
+      {/* Clue turns are Online-only. The server never enters CLUE_PHASE in Offline
+          mode, and the explicit mode guard means a stale/incorrect phase can never
+          surface a clue input box to a face-to-face group. */}
+      {!offline && phase === 'CLUE_PHASE' ? (
         <section className={cardClass}>
           <TimerHeader phaseExpiresAt={gameState.phaseExpiresAt} label={getTimerLabel('CLUE_PHASE')} />
 
@@ -195,9 +214,40 @@ export default function GameScreen({
           </div>
         </section>
       ) : null}
+      {/* Offline mode: clues are spoken, never typed, so there is no per-player
+          turn and nothing is stored. The entire "clue phase" for that mode is this
+          one shared, server-owned countdown before the voting flow takes over. */}
+      {phase === 'DISCUSSION_PHASE' ? (
+        <div className="space-y-4">
+          <DiscussionPanel
+            phaseExpiresAt={gameState.phaseExpiresAt}
+            totalSeconds={settings.discussionTimer ?? 0}
+          />
+
+          {!isSpectator && playerRole ? (
+            <section className={cardClass}>
+              <RoleRevealCard
+                rolePayload={playerRole}
+                selfId={localPlayer?.id}
+                revealed={roleRevealed}
+                onToggle={() => setRoleRevealed((value) => !value)}
+                variant="compact"
+              />
+              <p className="text-center text-xs text-mist">
+                Keep it to yourself — a quick peek at your own role is all you need.
+              </p>
+            </section>
+          ) : null}
+
+          <p className="text-center text-xs font-semibold text-mist">
+            Voting unlocks automatically when the discussion timer runs out.
+          </p>
+        </div>
+      ) : null}
+
       {phase === 'CLUE_REVEAL' ? (
         <section className={cardClass}>
-          <TimerHeader phaseExpiresAt={gameState.phaseExpiresAt} label={getTimerLabel('CLUE_REVEAL')} />
+          <TimerHeader phaseExpiresAt={gameState.phaseExpiresAt} label={getTimerLabel('CLUE_REVEAL', gameMode)} />
 
           <div className="flex items-center gap-3 rounded-2xl border border-brand-500/40 bg-brand-500/10 p-4">
             <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
@@ -205,8 +255,14 @@ export default function GameScreen({
               <CircleCheck className="relative h-5 w-5 text-brand-300" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold text-bone">All clues are in.</p>
-              <p className="text-xs text-mist">Read them over — voting starts automatically.</p>
+              <p className="text-sm font-bold text-bone">
+                {offline ? 'Discussion over.' : 'All clues are in.'}
+              </p>
+              <p className="text-xs text-mist">
+                {offline
+                  ? 'Wrap up the conversation — voting starts automatically.'
+                  : 'Read them over — voting starts automatically.'}
+              </p>
             </div>
           </div>
 
@@ -220,10 +276,13 @@ export default function GameScreen({
             />
           ) : null}
 
-          <div className="space-y-2">
-            <h3 className="text-xs font-black uppercase tracking-[0.16em] text-mist">Clues this round</h3>
-            <ClueTimeline clues={gameState.clueTimeline} />
-          </div>
+          {/* Offline has no clue list to show - the clues were spoken. */}
+          {offline ? null : (
+            <div className="space-y-2">
+              <h3 className="text-xs font-black uppercase tracking-[0.16em] text-mist">Clues this round</h3>
+              <ClueTimeline clues={gameState.clueTimeline} />
+            </div>
+          )}
         </section>
       ) : null}
       {phase === 'VOTING_PHASE' ? (

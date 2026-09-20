@@ -12,6 +12,19 @@ Think you can blend in?
 
 ---
 
+## 🔀 Game Modes
+
+When you create a room you choose how it will be played. The host can still switch modes in the lobby — the choice is locked in once the match starts.
+
+| Mode | Best for | How clues work |
+| --- | --- | --- |
+| **Online** | Players on different devices | Each player types one clue in turn, with a clue timer on every turn. |
+| **Offline** | Everyone sitting in the same room | Clues are given out loud — nothing is typed. The host sets a shared discussion time (30 seconds to 5 minutes) and the app only runs that countdown. |
+
+Both modes use the same roles, secret words, hints, voting, elimination, spectator and scoring rules. In both modes voting opens automatically after a short 5-second countdown.
+
+---
+
 ## 🎮 How to Play
 
 ### 1. Create or Join a Game

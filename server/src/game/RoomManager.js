@@ -1,4 +1,5 @@
 import { Room, Player } from './Room.js';
+import { DEFAULT_GAME_MODE } from '../config/gameConfig.js';
 import { generateRoomCode, generateSessionToken } from '../utils/codeGenerator.js';
 import crypto from 'crypto';
 
@@ -9,8 +10,9 @@ export class RoomManager {
 
   /**
    * Creates a new game room and assigns the host.
+   * `gameMode` is the host's Online/Offline choice made before the lobby.
    */
-  createRoom(playerName, socketId) {
+  createRoom(playerName, socketId, gameMode = DEFAULT_GAME_MODE) {
     let roomCode = generateRoomCode();
     while (this.rooms.has(roomCode)) {
       roomCode = generateRoomCode();
@@ -24,7 +26,7 @@ export class RoomManager {
       isHost: true,
     });
 
-    const room = new Room(roomCode, hostPlayer);
+    const room = new Room(roomCode, hostPlayer, { gameMode });
     this.rooms.set(roomCode, room);
 
     return { room, player: hostPlayer };

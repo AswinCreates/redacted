@@ -1,7 +1,10 @@
 import {
   GAME_LIMITS,
   VALID_CATEGORIES,
+  VALID_DISCUSSION_TIMERS,
+  VALID_GAME_MODES,
   VALID_TIMERS,
+  DEFAULT_GAME_MODE,
   getMaxImposters,
   parsePlayerCapacity,
 } from '../config/gameConfig.js';
@@ -14,6 +17,19 @@ export function validatePlayerName(name) {
   const trimmed = name.trim();
   if (trimmed.length < 2 || trimmed.length > 15) return null;
   return trimmed;
+}
+
+/**
+ * Normalizes a requested game mode to its canonical value.
+ *
+ * Returns `DEFAULT_GAME_MODE` when nothing was requested (so `create_room`
+ * stays backward compatible with clients that never send a mode), or null when
+ * a value was supplied that we do not recognise.
+ */
+export function normalizeGameMode(value) {
+  if (value === undefined || value === null || value === '') return DEFAULT_GAME_MODE;
+  const requested = String(value).toUpperCase();
+  return VALID_GAME_MODES.includes(requested) ? requested : null;
 }
 
 /**
@@ -31,6 +47,17 @@ export function validateSettings(settings, room) {
 
   const connectedCount = room?.getAllConnectedPlayers?.().length ?? 0;
   const sanitized = {};
+
+  if (settings.gameMode !== undefined) {
+    // Mode is a normal lobby setting, so switching Online <-> Offline before the
+    // match starts is allowed and the mode is frozen afterwards (the caller
+    // rejects every settings update outside LOBBY).
+    const requested = String(settings.gameMode).toUpperCase();
+    if (!VALID_GAME_MODES.includes(requested)) {
+      return { error: 'Invalid game mode.' };
+    }
+    sanitized.gameMode = requested;
+  }
 
   if (settings.maxPlayers !== undefined) {
     const capacity = parsePlayerCapacity(settings.maxPlayers, connectedCount);
@@ -95,6 +122,14 @@ export function validateSettings(settings, room) {
     const ct = parseInt(settings.clueTimer, 10);
     if (!VALID_TIMERS.includes(ct)) return { error: 'Invalid clue timer value.' };
     sanitized.clueTimer = ct;
+  }
+
+  if (settings.discussionTimer !== undefined) {
+    // Offline-only: the single shared verbal-discussion countdown. Lengths are
+    // much longer than a per-player clue timer by design.
+    const dt = parseInt(settings.discussionTimer, 10);
+    if (!VALID_DISCUSSION_TIMERS.includes(dt)) return { error: 'Invalid discussion timer value.' };
+    sanitized.discussionTimer = dt;
   }
 
   if (settings.votingTimer !== undefined) {

@@ -25,9 +25,41 @@ export const GAME_LIMITS = {
 export const VALID_TIMERS = [15, 30, 45, 60];
 
 /**
- * Server-authoritative pause between the final clue landing and the voting
- * phase starting. Gives every player time to read the last clue before the
- * vote begins. Broadcast via the CLUE_REVEAL phase + phaseExpiresAt.
+ * The two ways this game can be played. Both modes share the exact same room,
+ * player, role, word, voting, elimination, spectator and scoring systems - only
+ * the part between the role reveal and the vote differs.
+ *
+ *   ONLINE  - everyone on their own device. Players type clues in turn during
+ *             the CLUE_PHASE and the server collects them.
+ *   OFFLINE - everyone in the same physical room. Clues are spoken aloud, so the
+ *             server runs one shared DISCUSSION_PHASE timer instead of per-player
+ *             clue turns, then hands over to the unchanged voting flow.
+ *
+ * Stored as `room.settings.gameMode`, which means the existing LOBBY-only
+ * settings gate also locks the mode in as soon as a match starts.
+ */
+export const GAME_MODES = {
+  ONLINE: 'ONLINE',
+  OFFLINE: 'OFFLINE',
+};
+
+/** Every legal value for `settings.gameMode`. */
+export const VALID_GAME_MODES = [GAME_MODES.ONLINE, GAME_MODES.OFFLINE];
+
+/** Mode used when a room is created without an explicit choice. */
+export const DEFAULT_GAME_MODE = GAME_MODES.ONLINE;
+
+/** Discussion-phase lengths offered to the host in Offline mode (seconds). */
+export const VALID_DISCUSSION_TIMERS = [30, 60, 120, 180, 300];
+
+/** Starting value for the host-controlled `discussionTimer` room setting. */
+export const DEFAULT_DISCUSSION_TIMER = 120;
+
+/**
+ * Server-authoritative pause between the end of clue gathering (the final clue
+ * in Online, the discussion timer in Offline) and the voting phase starting.
+ * Gives every player time to read the last clue / wrap up the conversation
+ * before the vote begins. Broadcast via the CLUE_REVEAL phase + phaseExpiresAt.
  */
 export const CLUE_REVEAL_SECONDS = 5;
 

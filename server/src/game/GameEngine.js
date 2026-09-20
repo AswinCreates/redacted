@@ -1,5 +1,11 @@
 import { wordBank } from './WordBank.js';
-import { GAME_LIMITS, getMaxImposters, CLUE_REVEAL_SECONDS } from '../config/gameConfig.js';
+import {
+  GAME_LIMITS,
+  getMaxImposters,
+  CLUE_REVEAL_SECONDS,
+  GAME_MODES,
+  DEFAULT_DISCUSSION_TIMER,
+} from '../config/gameConfig.js';
 
 export class GameEngine {
   constructor(io) {
@@ -107,7 +113,56 @@ export class GameEngine {
 
   transitionToRoleReveal(room) {
     room.phase = 'ROLE_REVEAL';
-    this.setPhaseTimer(room, 8, () => this.transitionToCluePhase(room));
+    // Role/word handling is identical in both modes - only where we go next
+    // depends on the mode, so the fork happens once, here.
+    this.setPhaseTimer(room, 8, () => this.transitionToPlayPhase(room));
+    this.broadcastState(room);
+  }
+
+  /**
+   * Mode fork after the reveal.
+   *
+   *   ONLINE  -> per-player turn-based CLUE_PHASE (unchanged)
+   *   OFFLINE -> one shared verbal DISCUSSION_PHASE
+   *
+   * Both paths converge on the same CLUE_REVEAL pause and VOTING_PHASE, so the
+   * voting, elimination, spectator, scoring and win-condition code is shared
+   * and never duplicated per mode.
+   */
+  transitionToPlayPhase(room) {
+    if (this.isOfflineMode(room)) {
+      this.transitionToDiscussionPhase(room);
+      return;
+    }
+    this.transitionToCluePhase(room);
+  }
+
+  /** True when the room is playing the face-to-face (verbal) mode. */
+  isOfflineMode(room) {
+    return room.settings.gameMode === GAME_MODES.OFFLINE;
+  }
+
+  /**
+   * DISCUSSION_PHASE (Offline only): everyone is in the same room and clues are
+   * spoken out loud, so there is no turn queue, no clue submission and nothing
+   * stored. The server only owns the shared countdown, exactly like the clue
+   * timer it replaces: when it expires the round moves into the same 5-second
+   * "voting begins in..." pause the Online mode uses.
+   */
+  transitionToDiscussionPhase(room) {
+    room.phase = 'DISCUSSION_PHASE';
+    // No turn system in this mode - clear it so no client can see a stale turn.
+    room.turnQueue = [];
+    room.currentTurnIndex = 0;
+
+    if (room.getActivePlayers().length === 0) {
+      // Mirrors the empty clue-phase guard: nobody could vote anyway.
+      this.transitionToResultPhase(room);
+      return;
+    }
+
+    const discussionSeconds = room.settings.discussionTimer || DEFAULT_DISCUSSION_TIMER;
+    this.setPhaseTimer(room, discussionSeconds, () => this.transitionToVoteIntro(room));
     this.broadcastState(room);
   }
 
@@ -131,7 +186,7 @@ export class GameEngine {
     if (room.currentTurnIndex >= room.turnQueue.length) {
       // All active players submitted clues: brief server-controlled pause so
       // everyone can read the final clue before the vote begins.
-      this.transitionToClueReveal(room);
+      this.transitionToVoteIntro(room);
       return;
     }
 
@@ -185,12 +240,18 @@ export class GameEngine {
   }
 
   /**
-   * CLUE_REVEAL: the final clue just landed. The clue list stays fully visible
-   * for CLUE_REVEAL_SECONDS while the server counts down to the vote. No clues
-   * or votes are accepted in this phase (their handlers are phase-gated), and
-   * the timer is tracked on the room so a reset/rematch clears it.
+   * The shared "voting begins in 5..." pause, used by BOTH modes.
+   *
+   * Online: the final clue just landed, so the clue list stays fully visible for
+   * CLUE_REVEAL_SECONDS while the server counts down to the vote.
+   * Offline: the discussion timer just expired, so the group gets the same
+   * countdown to wrap up the conversation.
+   *
+   * No clues or votes are accepted in this phase (their handlers are phase-gated),
+   * and the timer is tracked on the room so a reset/rematch clears it. The phase
+   * name stays CLUE_REVEAL so the wire protocol is unchanged for Online clients.
    */
-  transitionToClueReveal(room) {
+  transitionToVoteIntro(room) {
     room.phase = 'CLUE_REVEAL';
     this.setPhaseTimer(room, CLUE_REVEAL_SECONDS, () => this.transitionToVotingPhase(room));
     this.broadcastState(room);

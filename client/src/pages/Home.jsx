@@ -3,7 +3,9 @@ import { UserRound, LogIn, Plus, Users, ShieldQuestion } from 'lucide-react';
 import { saveSession } from '../utils/storage';
 import { readRoomCodeFromUrl } from '../hooks/useGameState';
 import { GAME_NAME, GAME_TAGLINE, GAME_SUBTITLE } from '../config/branding';
+import { DEFAULT_GAME_MODE } from '../utils/gameModes';
 import SegmentedControl from '../components/ui/SegmentedControl';
+import GameModeSelector from '../components/ui/GameModeSelector';
 
 const MODES = [
   { value: 'join', label: 'Join a room' },
@@ -16,6 +18,9 @@ export default function Home({ socket, setErrorMsg, isConnected = true }) {
   const [urlCode] = useState(() => readRoomCodeFromUrl());
   const [roomCode, setRoomCode] = useState(urlCode || '');
   const [mode, setMode] = useState('join');
+  // How the new room will be played. Chosen here, sent with create_room, and
+  // still changeable by the host in the lobby until the match starts.
+  const [gameMode, setGameMode] = useState(DEFAULT_GAME_MODE);
 
   const readName = () => {
     const trimmed = playerName.trim();
@@ -32,7 +37,7 @@ export default function Home({ socket, setErrorMsg, isConnected = true }) {
     if (!name || !socket) return;
     setErrorMsg(null);
     saveSession({ playerName: name });
-    socket.emit('create_room', { playerName: name });
+    socket.emit('create_room', { playerName: name, gameMode });
   };
 
   const handleJoin = (event) => {
@@ -110,6 +115,10 @@ export default function Home({ socket, setErrorMsg, isConnected = true }) {
                 className={`${inputClass} text-center font-mono text-2xl font-black tracking-[0.4em]`}
               />
             </div>
+          ) : null}
+
+          {mode === 'create' ? (
+            <GameModeSelector value={gameMode} onChange={setGameMode} disabled={!isConnected} />
           ) : null}
 
           <button

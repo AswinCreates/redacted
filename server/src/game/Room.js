@@ -1,4 +1,11 @@
-import { GAME_LIMITS, getImposterOptions } from '../config/gameConfig.js';
+import {
+  GAME_LIMITS,
+  getImposterOptions,
+  DEFAULT_GAME_MODE,
+  DEFAULT_DISCUSSION_TIMER,
+  VALID_DISCUSSION_TIMERS,
+  VALID_TIMERS,
+} from '../config/gameConfig.js';
 
 export class Player {
   constructor({ id, playerName, socketId, sessionToken, isHost = false }) {
@@ -33,20 +40,27 @@ export class Player {
 }
 
 export class Room {
-  constructor(roomCode, hostPlayer) {
+  constructor(roomCode, hostPlayer, { gameMode = DEFAULT_GAME_MODE } = {}) {
     this.roomCode = roomCode;
     this.hostId = hostPlayer.id;
     this.players = new Map(); // playerId -> Player instance
-    this.phase = 'LOBBY'; // LOBBY, GAME_START, ROLE_REVEAL, CLUE_PHASE, CLUE_REVEAL, VOTING_PHASE, RESULT_PHASE, GAME_OVER
-    
+    // LOBBY, GAME_START, ROLE_REVEAL, CLUE_PHASE (Online), DISCUSSION_PHASE
+    // (Offline), CLUE_REVEAL, VOTING_PHASE, RESULT_PHASE, GAME_OVER
+    this.phase = 'LOBBY';
+
     // Host Configurable Settings (bounds are enforced in utils/validation.js)
     this.settings = {
+      // 'ONLINE' (typed clues, separate devices) | 'OFFLINE' (verbal, one room).
+      // Swappable in the lobby, frozen once the match starts (settings are
+      // rejected outside LOBBY).
+      gameMode,
       // Player capacity chosen by the host - bounded by GAME_LIMITS, never fixed.
       maxPlayers: GAME_LIMITS.DEFAULT_MAX_PLAYERS,
       imposterCount: GAME_LIMITS.MIN_IMPOSTERS,
       categories: ['General'], // 1-3 categories chosen by the host
-      clueTimer: 30,
-      votingTimer: 30,
+      clueTimer: 30, // Online only - ignored while gameMode is OFFLINE
+      discussionTimer: DEFAULT_DISCUSSION_TIMER, // Offline only
+      votingTimer: 30, // Used by both modes
     };
 
     // Active Match State
@@ -98,11 +112,14 @@ export class Room {
         categories: this.settings.categories,
       },
       // Server-owned rules, broadcast so the client never hardcodes capacity
-      // limits or which imposter counts are legal.
+      // limits, which imposter counts are legal, or the timer presets.
       limits: {
         minCapacity: GAME_LIMITS.MIN_PLAYERS,
         maxCapacity: GAME_LIMITS.MAX_PLAYERS,
         imposterOptions: getImposterOptions(this.settings.maxPlayers),
+        clueTimerOptions: VALID_TIMERS,
+        votingTimerOptions: VALID_TIMERS,
+        discussionTimerOptions: VALID_DISCUSSION_TIMERS,
       },
       currentRound: this.currentRound,
       phaseExpiresAt: this.phaseExpiresAt,

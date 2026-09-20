@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Users, Play, LogOut, Crown, VenetianMask, Sparkles, Clock, Vote, LoaderCircle, Lock, UserX } from 'lucide-react';
+import { Users, Play, LogOut, Crown, VenetianMask, Sparkles, Clock, Vote, LoaderCircle, Lock, UserX, Globe, MessageCircleMore } from 'lucide-react';
 import { fetchCategories } from '../utils/api';
 import { GAME_NAME } from '../config/branding';
+import { GAME_MODES, GAME_MODE_META, getGameMode } from '../utils/gameModes';
+import { formatDurationLabel } from '../utils/formatTime';
 import RoomCodeBadge from '../components/ui/RoomCodeBadge';
 import PlayerAvatar from '../components/ui/PlayerAvatar';
 import Stepper from '../components/ui/Stepper';
@@ -9,7 +11,9 @@ import SegmentedControl from '../components/ui/SegmentedControl';
 import CategoryDropdown from '../components/ui/CategoryDropdown';
 import SettingRow from '../components/ui/SettingRow';
 
-const TIMER_OPTIONS = [15, 30, 45, 60].map((seconds) => ({ value: seconds, label: `${seconds}s` }));
+// Fallbacks only - the server ships the real presets inside `room.limits`.
+const FALLBACK_TIMERS = [15, 30, 45, 60];
+const FALLBACK_DISCUSSION_TIMERS = [30, 60, 120, 180, 300];
 
 export default function Lobby({ socket, gameState, localPlayer, onLeave }) {
   const [themes, setThemes] = useState([]);
@@ -36,6 +40,28 @@ export default function Lobby({ socket, gameState, localPlayer, onLeave }) {
   const imposterOptions = limits.imposterOptions ?? [1];
   const themeOptions = themes.length > 0 ? themes : (settings?.categories ?? []);
 
+  // Online / Offline is a normal lobby setting: broadcast by the server, editable
+  // by the host here, and frozen once the match starts.
+  const gameMode = getGameMode(settings);
+  const isOffline = gameMode === GAME_MODES.OFFLINE;
+  const modeMeta = GAME_MODE_META[gameMode];
+  const ModeIcon = isOffline ? MessageCircleMore : Globe;
+  const modeOptions = Object.values(GAME_MODES).map((value) => ({
+    value,
+    label: GAME_MODE_META[value].label,
+  }));
+  const clueTimerOptions = (limits.clueTimerOptions ?? FALLBACK_TIMERS).map((seconds) => ({
+    value: seconds,
+    label: `${seconds}s`,
+  }));
+  const votingTimerOptions = (limits.votingTimerOptions ?? FALLBACK_TIMERS).map((seconds) => ({
+    value: seconds,
+    label: `${seconds}s`,
+  }));
+  const discussionTimerOptions = (limits.discussionTimerOptions ?? FALLBACK_DISCUSSION_TIMERS).map(
+    (seconds) => ({ value: seconds, label: formatDurationLabel(seconds) })
+  );
+
   const capacity = settings.maxPlayers ?? limits.minCapacity;
   const capacityMin = Math.max(limits.minCapacity, connectedPlayers.length);
   const openSlots = Math.max(0, capacity - connectedPlayers.length);
@@ -58,6 +84,10 @@ export default function Lobby({ socket, gameState, localPlayer, onLeave }) {
           <span className="font-display text-xl font-black tracking-[0.12em] text-white sm:text-2xl"><span aria-hidden="true">RED<span className="text-brand-500">ACTED</span></span><span className="sr-only">{GAME_NAME}</span></span>
           <span className="rounded-full border border-brand-500/30 bg-brand-500/15 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-brand-300">
             Lobby
+          </span>
+          <span className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-bone">
+            <ModeIcon className="h-3 w-3" />
+            {modeMeta.label}
           </span>
         </div>
         <button
@@ -86,6 +116,21 @@ export default function Lobby({ socket, gameState, localPlayer, onLeave }) {
               </span>
             )}
           </div>
+
+          <SettingRow
+            icon={ModeIcon}
+            label="Game mode"
+            hint={isHost ? modeMeta.lobbyHint : `${modeMeta.label} mode set by ${hostName}`}
+            accentClass={isOffline ? 'text-emerald-300' : 'text-brand-400'}
+          >
+            <SegmentedControl
+              options={modeOptions}
+              value={gameMode}
+              disabled={!isHost}
+              onChange={(value) => updateSetting({ gameMode: value })}
+              ariaLabel="Game mode"
+            />
+          </SettingRow>
 
           <SettingRow
             icon={Users}
@@ -132,20 +177,43 @@ export default function Lobby({ socket, gameState, localPlayer, onLeave }) {
             />
           </SettingRow>
 
-          <SettingRow icon={Clock} label="Clue timer" hint="Time each player gets to give a clue">
-            <SegmentedControl
-              options={TIMER_OPTIONS}
-              value={settings.clueTimer}
-              disabled={!isHost}
-              size="sm"
-              onChange={(value) => updateSetting({ clueTimer: value })}
-              ariaLabel="Clue timer"
-            />
-          </SettingRow>
+          {/* Clue timer is Online-only; Offline swaps it for the shared discussion timer. */}
+          {isOffline ? (
+            <SettingRow
+              icon={MessageCircleMore}
+              label="Discussion time"
+              hint={
+                isHost
+                  ? 'One shared countdown for the whole group before voting'
+                  : `Set by ${hostName}`
+              }
+              accentClass="text-emerald-300"
+            >
+              <SegmentedControl
+                options={discussionTimerOptions}
+                value={settings.discussionTimer}
+                disabled={!isHost}
+                size="sm"
+                onChange={(value) => updateSetting({ discussionTimer: value })}
+                ariaLabel="Discussion time"
+              />
+            </SettingRow>
+          ) : (
+            <SettingRow icon={Clock} label="Clue timer" hint="Time each player gets to give a clue">
+              <SegmentedControl
+                options={clueTimerOptions}
+                value={settings.clueTimer}
+                disabled={!isHost}
+                size="sm"
+                onChange={(value) => updateSetting({ clueTimer: value })}
+                ariaLabel="Clue timer"
+              />
+            </SettingRow>
+          )}
 
           <SettingRow icon={Vote} label="Voting timer" hint="Time allowed to cast a vote">
             <SegmentedControl
-              options={TIMER_OPTIONS}
+              options={votingTimerOptions}
               value={settings.votingTimer}
               disabled={!isHost}
               size="sm"
