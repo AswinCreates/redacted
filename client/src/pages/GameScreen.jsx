@@ -195,6 +195,37 @@ export default function GameScreen({
           </div>
         </section>
       ) : null}
+      {phase === 'CLUE_REVEAL' ? (
+        <section className={cardClass}>
+          <TimerHeader phaseExpiresAt={gameState.phaseExpiresAt} label={getTimerLabel('CLUE_REVEAL')} />
+
+          <div className="flex items-center gap-3 rounded-2xl border border-brand-500/40 bg-brand-500/10 p-4">
+            <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
+              <span className="absolute inset-0 animate-glow-pulse rounded-full bg-brand-500/30 blur-md" />
+              <CircleCheck className="relative h-5 w-5 text-brand-300" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-bone">All clues are in.</p>
+              <p className="text-xs text-mist">Read them over — voting starts automatically.</p>
+            </div>
+          </div>
+
+          {!isSpectator && playerRole ? (
+            <RoleRevealCard
+              rolePayload={playerRole}
+              selfId={localPlayer?.id}
+              revealed={roleRevealed}
+              onToggle={() => setRoleRevealed((value) => !value)}
+              variant="compact"
+            />
+          ) : null}
+
+          <div className="space-y-2">
+            <h3 className="text-xs font-black uppercase tracking-[0.16em] text-mist">Clues this round</h3>
+            <ClueTimeline clues={gameState.clueTimeline} />
+          </div>
+        </section>
+      ) : null}
       {phase === 'VOTING_PHASE' ? (
         <section className={cardClass}>
           <TimerHeader phaseExpiresAt={gameState.phaseExpiresAt} label={getTimerLabel('VOTING_PHASE')} />

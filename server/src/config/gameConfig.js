@@ -24,6 +24,13 @@ export const GAME_LIMITS = {
 /** Timer choices offered to the host (seconds). */
 export const VALID_TIMERS = [15, 30, 45, 60];
 
+/**
+ * Server-authoritative pause between the final clue landing and the voting
+ * phase starting. Gives every player time to read the last clue before the
+ * vote begins. Broadcast via the CLUE_REVEAL phase + phaseExpiresAt.
+ */
+export const CLUE_REVEAL_SECONDS = 5;
+
 /** Word-bank themes currently seeded in the database. */
 export const VALID_CATEGORIES = ['General', 'Food', 'Animals', 'Tech', 'Movies', 'Places'];
 

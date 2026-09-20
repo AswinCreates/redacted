@@ -37,7 +37,7 @@ export class Room {
     this.roomCode = roomCode;
     this.hostId = hostPlayer.id;
     this.players = new Map(); // playerId -> Player instance
-    this.phase = 'LOBBY'; // LOBBY, GAME_START, ROLE_REVEAL, CLUE_PHASE, VOTING_PHASE, RESULT_PHASE, GAME_OVER
+    this.phase = 'LOBBY'; // LOBBY, GAME_START, ROLE_REVEAL, CLUE_PHASE, CLUE_REVEAL, VOTING_PHASE, RESULT_PHASE, GAME_OVER
     
     // Host Configurable Settings (bounds are enforced in utils/validation.js)
     this.settings = {

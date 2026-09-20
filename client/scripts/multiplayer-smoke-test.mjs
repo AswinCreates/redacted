@@ -206,6 +206,78 @@ async function main() {
     new Set(clients.map((c) => JSON.stringify(c.publicState.clueTimeline))).size === 1
   );
 
+  console.log('\n=== 6.5 CLUE REVEAL TRANSITION (final clue -> countdown -> vote) ===');
+  const revealStarted = await waitFor('CLUE_REVEAL transition', () => host.publicState?.phase === 'CLUE_REVEAL');
+  check('CLUE_REVEAL phase starts after the final clue', revealStarted);
+  check(
+    'final clue is visible to every client during the transition',
+    clients.every((c) => c.publicState?.phase === 'CLUE_REVEAL' && c.publicState.clueTimeline.length >= 3)
+  );
+  check(
+    'clue timeline stays identical on all clients during the transition',
+    new Set(clients.map((c) => JSON.stringify(c.publicState.clueTimeline))).size === 1
+  );
+  check(
+    'transition countdown is server-broadcast (phaseExpiresAt in the future)',
+    clients.every((c) => c.publicState.phaseExpiresAt > Date.now())
+  );
+
+  // A client that reconnects during the transition must be handed the live phase
+  // and the remaining countdown by the server - never a stale phase or a local
+  // guess. This is the "late joiner" path the countdown UI depends on.
+  p3.socket.disconnect();
+  const rejoiner = makeClient('Player3-rejoin');
+  await waitFor('rejoining client connected', () => rejoiner.socket.connected, 5000);
+  rejoiner.socket.emit('join_room', { roomCode, playerName: 'Player3', sessionToken: p3.sessionToken });
+  const rejoinState = await waitFor(
+    'rejoining client received the transition state',
+    () => rejoiner.publicState !== null,
+    5000
+  );
+  check(
+    'a client reconnecting mid-transition is told the live phase',
+    rejoinState && ['CLUE_REVEAL', 'VOTING_PHASE'].includes(rejoiner.publicState.phase),
+    `saw ${rejoiner.publicState?.phase}`
+  );
+  check(
+    'the rejoining client is told how much time is left',
+    rejoiner.publicState?.phaseExpiresAt > Date.now()
+  );
+  check(
+    'the rejoining client still sees the full clue list',
+    (rejoiner.publicState?.clueTimeline?.length ?? 0) >= 3
+  );
+
+  // Keep the third seat on the reconnected socket for the rest of the flow.
+  clients[2] = rejoiner;
+
+  // Votes must be ignored while the countdown runs.
+  p2.socket.emit('submit_vote', { targetPlayerId: host.playerId });
+  await sleep(700);
+  check(
+    'votes are rejected during the CLUE_REVEAL transition',
+    p2.publicState.players.find((pl) => pl.id === p2.playerId)?.hasVoted !== true
+  );
+
+  // Late clues must be ignored while the countdown runs - on any socket.
+  rejoiner.socket.emit('submit_clue', { clueText: 'too-late-clue' });
+  await sleep(700);
+  check(
+    'clues are rejected during the CLUE_REVEAL transition',
+    !clients.some((c) => c.publicState.clueTimeline.some((cl) => cl.clueText === 'too-late-clue'))
+  );
+
+  const votingAfterCountdown = await waitFor(
+    'voting phase after the countdown',
+    () => host.publicState?.phase === 'VOTING_PHASE',
+    10000
+  );
+  check('voting phase starts automatically after the countdown', votingAfterCountdown);
+  check(
+    'the clue list is unchanged when voting starts (nothing added/removed)',
+    clients.every((c) => c.publicState.clueTimeline.length >= 3)
+  );
+
   console.log('\n=== 7. VOTING PHASE ===');
   const votingReached = await waitFor('phase reaches VOTING_PHASE', () => host.publicState?.phase === 'VOTING_PHASE');
   check('voting phase started', votingReached);
@@ -321,7 +393,9 @@ async function main() {
 
   const roundTwo = await waitFor(
     'round 2 starts automatically',
-    () => host.publicState?.currentRound === 2 && ['GAME_START', 'ROLE_REVEAL', 'CLUE_PHASE'].includes(host.publicState.phase),
+    () =>
+      host.publicState?.currentRound === 2 &&
+      ['GAME_START', 'ROLE_REVEAL', 'CLUE_PHASE', 'CLUE_REVEAL'].includes(host.publicState.phase),
     30000
   );
   check('NEXT ROUND: round 2 starts automatically with no round setting', roundTwo);

@@ -1,5 +1,5 @@
 import { wordBank } from './WordBank.js';
-import { GAME_LIMITS, getMaxImposters } from '../config/gameConfig.js';
+import { GAME_LIMITS, getMaxImposters, CLUE_REVEAL_SECONDS } from '../config/gameConfig.js';
 
 export class GameEngine {
   constructor(io) {
@@ -129,8 +129,9 @@ export class GameEngine {
 
   advanceClueTurn(room) {
     if (room.currentTurnIndex >= room.turnQueue.length) {
-      // All active players submitted clues
-      this.transitionToVotingPhase(room);
+      // All active players submitted clues: brief server-controlled pause so
+      // everyone can read the final clue before the vote begins.
+      this.transitionToClueReveal(room);
       return;
     }
 
@@ -181,6 +182,18 @@ export class GameEngine {
     // Move to next turn queue item
     room.currentTurnIndex++;
     this.advanceClueTurn(room);
+  }
+
+  /**
+   * CLUE_REVEAL: the final clue just landed. The clue list stays fully visible
+   * for CLUE_REVEAL_SECONDS while the server counts down to the vote. No clues
+   * or votes are accepted in this phase (their handlers are phase-gated), and
+   * the timer is tracked on the room so a reset/rematch clears it.
+   */
+  transitionToClueReveal(room) {
+    room.phase = 'CLUE_REVEAL';
+    this.setPhaseTimer(room, CLUE_REVEAL_SECONDS, () => this.transitionToVotingPhase(room));
+    this.broadcastState(room);
   }
 
   transitionToVotingPhase(room) {

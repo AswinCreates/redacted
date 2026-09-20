@@ -10,6 +10,7 @@ export const PHASE_LABELS = {
   GAME_START: 'Dealing Roles',
   ROLE_REVEAL: 'Your Secret',
   CLUE_PHASE: 'Give Your Clue',
+  CLUE_REVEAL: 'All Clues Are In',
   VOTING_PHASE: 'Who Do You Suspect?',
   RESULT_PHASE: 'The Reveal',
   GAME_OVER: 'Final Results',
@@ -20,6 +21,7 @@ export const PHASE_HINTS = {
   GAME_START: 'Shuffling the secret word…',
   ROLE_REVEAL: 'Memorise it, then keep it to yourself.',
   CLUE_PHASE: 'One clue each, in turn. No straight giveaways.',
+  CLUE_REVEAL: 'Read the final clues before voting begins.',
   VOTING_PHASE: 'Tap the player you think is bluffing.',
   RESULT_PHASE: 'The votes are in.',
   GAME_OVER: 'Match complete.',
@@ -28,6 +30,7 @@ export const PHASE_HINTS = {
 /** Friendly names for timer labels. */
 export const TIMER_LABELS = {
   CLUE_PHASE: 'Time to clue',
+  CLUE_REVEAL: 'Voting begins in',
   VOTING_PHASE: 'Time to vote',
   ROLE_REVEAL: 'Time to memorise',
   RESULT_PHASE: 'Next round in',
